@@ -1,0 +1,2 @@
+# fdup
+Find duplicate files
