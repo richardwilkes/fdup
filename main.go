@@ -73,18 +73,22 @@ func main() {
 			fmt.Printf(i18n.Text("Unable to determine real path for '%s'.\n"), path)
 			atexit.Exit(1)
 		}
-		add := true
-		for one := range set {
-			if strings.HasPrefix(one, real) {
-				delete(set, one)
-				break
-			} else if strings.HasPrefix(real, one) {
-				add = false
-				break
+		if _, exists := set[real]; !exists {
+			add := true
+			for one := range set {
+				prefixed := strings.HasPrefix(rel(one, real), "..")
+				if prefixed != strings.HasPrefix(rel(real, one), "..") {
+					if prefixed {
+						delete(set, one)
+					} else {
+						add = false
+						break
+					}
+				}
 			}
-		}
-		if add {
-			set[real] = true
+			if add {
+				set[real] = true
+			}
 		}
 	}
 
@@ -161,6 +165,15 @@ func main() {
 			fmt.Println(i18n.Text("No duplicates found."))
 		}
 	}
+}
+
+func rel(base, target string) string {
+	path, err := filepath.Rel(base, target)
+	if err != nil {
+		fmt.Println(err)
+		atexit.Exit(1)
+	}
+	return path
 }
 
 func progress(done chan chan bool) {
