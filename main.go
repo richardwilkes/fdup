@@ -125,7 +125,9 @@ func main() {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			filepath.Walk(p, walker)
+			if err := filepath.Walk(p, walker); err != nil {
+				return // Essentially ignoring it
+			}
 		}(path)
 	}
 
