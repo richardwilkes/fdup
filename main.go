@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/richardwilkes/atexit"
-	"github.com/richardwilkes/i18n"
+	"github.com/richardwilkes/toolbox/atexit"
 	"github.com/richardwilkes/toolbox/cmdline"
+	"github.com/richardwilkes/toolbox/i18n"
 	"github.com/richardwilkes/toolbox/taskqueue"
 	"github.com/richardwilkes/toolbox/txt"
 	"github.com/richardwilkes/toolbox/xio"
