@@ -49,6 +49,7 @@ func main() {
 	cmdline.CopyrightYears = "2018"
 	cmdline.License = "Mozilla Public License Version 2.0"
 	cl := cmdline.New(true)
+	cl.UsageSuffix = "dirs..."
 	cl.NewStringArrayOption(&extensions).SetName("extension").SetSingle('e').SetName("EXTENSION").SetUsage(i18n.Text("Limit processing to just files with the specified extension. May be specified more than once"))
 	cl.NewBoolOption(&hidden).SetName("hidden").SetSingle('H').SetUsage(i18n.Text("Process files and directories that start with a period. These 'hidden' files are ignored by default"))
 	cl.NewBoolOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. Note that there is no guarantee of which duplicate files will be removed, only that a single copy will exist afterward"))
