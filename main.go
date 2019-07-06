@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +16,6 @@ import (
 	"github.com/richardwilkes/toolbox/atexit"
 	"github.com/richardwilkes/toolbox/cmdline"
 	"github.com/richardwilkes/toolbox/i18n"
-	"github.com/richardwilkes/toolbox/taskqueue"
 	"github.com/richardwilkes/toolbox/txt"
 	"github.com/richardwilkes/toolbox/xio"
 	"github.com/richardwilkes/toolbox/xio/term"
@@ -29,7 +27,6 @@ var (
 	hidden               bool
 	remove               bool
 	caseSensitive        bool
-	queue                *taskqueue.Queue
 	filesProcessed       int32
 	filesUnableToProcess int32
 	bytesProcessed       int64
@@ -52,7 +49,7 @@ func main() {
 	cl.UsageSuffix = "dirs..."
 	cl.NewStringArrayOption(&extensions).SetName("extension").SetSingle('e').SetName("EXTENSION").SetUsage(i18n.Text("Limit processing to just files with the specified extension. May be specified more than once"))
 	cl.NewBoolOption(&hidden).SetName("hidden").SetSingle('H').SetUsage(i18n.Text("Process files and directories that start with a period. These 'hidden' files are ignored by default"))
-	cl.NewBoolOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. Note that there is no guarantee of which duplicate files will be removed, only that a single copy will exist afterward"))
+	cl.NewBoolOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. The first copy encountered will be preserved"))
 	cl.NewBoolOption(&caseSensitive).SetName("case").SetSingle('c').SetUsage(i18n.Text("Extensions are case-sensitive"))
 	paths := cl.Parse(os.Args[1:])
 
@@ -66,8 +63,10 @@ func main() {
 		paths = append(paths, wd)
 	}
 
-	// Determine the actual root paths and prune out paths that are a subset of another
-	set := make(map[string]bool)
+	// Determine the actual root paths and prune out paths that are a subset
+	// of another
+	set := make(map[string]int)
+	order := 0
 	for _, path := range paths {
 		real, err := realpath.Realpath(path)
 		if err != nil {
@@ -88,7 +87,8 @@ func main() {
 				}
 			}
 			if add {
-				set[real] = true
+				set[real] = order
+				order++
 			}
 		}
 	}
@@ -120,21 +120,21 @@ func main() {
 	extensions = ext
 
 	// Process the paths
-	var wg sync.WaitGroup
-	queue = taskqueue.New(taskqueue.Workers(runtime.NumCPU()*2 + 1))
-	for path := range set {
-		wg.Add(1)
-		go func(p string) {
-			defer wg.Done()
-			if err := filepath.Walk(p, walker); err != nil {
-				return // Essentially ignoring it
-			}
-		}(path)
+	type po struct {
+		path  string
+		order int
 	}
-
-	// Wait for completion
-	wg.Wait()
-	queue.Shutdown()
+	list := make([]po, 0, len(set))
+	for path, order := range set {
+		list = append(list, po{path: path, order: order})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].order < list[j].order })
+	for _, one := range list {
+		if err := filepath.Walk(one.path, walker); err != nil {
+			fmt.Println(err)
+			atexit.Exit(1)
+		}
+	}
 	waitDone := make(chan bool)
 	done <- waitDone
 	<-waitDone
@@ -149,13 +149,11 @@ func main() {
 		m := make(map[string][]string)
 		for _, v := range hashes {
 			if len(v) > 1 {
-				sort.Slice(v, func(i, j int) bool { return txt.NaturalLess(v[i], v[j], true) })
 				dups = append(dups, v[0])
 				m[v[0]] = v[1:]
 			}
 		}
 		if len(dups) > 0 {
-			sort.Slice(dups, func(i, j int) bool { return txt.NaturalLess(dups[i], dups[j], true) })
 			for _, dup := range dups {
 				fmt.Println()
 				fmt.Println(dup)
@@ -266,9 +264,7 @@ func walker(path string, info os.FileInfo, err error) error {
 
 	// If this is a file, process it
 	if !info.IsDir() && isFileNameAcceptable(name) {
-		queue.Submit(func() {
-			processFile(path)
-		})
+		processFile(path)
 	}
 	return nil
 }
