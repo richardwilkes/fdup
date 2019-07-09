@@ -23,20 +23,22 @@ import (
 )
 
 var (
-	extensions           []string
-	hidden               bool
-	remove               bool
-	caseSensitive        bool
-	filesProcessed       int32
-	filesUnableToProcess int32
-	bytesProcessed       int64
-	duplicatesFound      int32
-	duplicateBytes       int64
-	ansi                 *term.ANSI
-	lock                 sync.Mutex
-	hashes               = make(map[[32]byte][]string)
-	removed              []string
-	unableToRemove       []string
+	extensions             []string
+	hidden                 bool
+	remove                 bool
+	removeOnlyFromLast     bool
+	caseSensitive          bool
+	filesProcessed         int32
+	filesUnableToProcess   int32
+	bytesProcessed         int64
+	duplicatesFound        int32
+	duplicateBytes         int64
+	ansi                   *term.ANSI
+	lock                   sync.Mutex
+	hashes                 = make(map[[32]byte][]string)
+	removed                []string
+	unableToRemove         []string
+	removeOnlyFromLastRoot string
 )
 
 func main() {
@@ -50,6 +52,7 @@ func main() {
 	cl.NewStringArrayOption(&extensions).SetName("extension").SetSingle('e').SetName("EXTENSION").SetUsage(i18n.Text("Limit processing to just files with the specified extension. May be specified more than once"))
 	cl.NewBoolOption(&hidden).SetName("hidden").SetSingle('H').SetUsage(i18n.Text("Process files and directories that start with a period. These 'hidden' files are ignored by default"))
 	cl.NewBoolOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. The first copy encountered will be preserved"))
+	cl.NewBoolOption(&removeOnlyFromLast).SetName("last").SetSingle('l').SetUsage(i18n.Text("When deleting duplicates, only delete those found within the last directory tree specified on the command line"))
 	cl.NewBoolOption(&caseSensitive).SetName("case").SetSingle('c').SetUsage(i18n.Text("Extensions are case-sensitive"))
 	paths := cl.Parse(os.Args[1:])
 
@@ -91,6 +94,7 @@ func main() {
 				order++
 			}
 		}
+		removeOnlyFromLastRoot = real
 	}
 
 	// Setup progress monitoring
@@ -322,6 +326,9 @@ func processFile(path string) {
 
 	// Process any removal
 	if needRemove {
+		if removeOnlyFromLast && strings.HasPrefix(rel(removeOnlyFromLastRoot, path), "..") {
+			return
+		}
 		if err = os.Remove(path); err != nil {
 			lock.Lock()
 			unableToRemove = append(unableToRemove, path)
