@@ -43,9 +43,9 @@ var (
 
 func main() {
 	cmdline.AppName = "Find Duplicates"
-	cmdline.AppVersion = "1.0"
+	cmdline.AppVersion = "1.0.1"
 	cmdline.CopyrightHolder = "Richard Wilkes"
-	cmdline.CopyrightYears = "2018"
+	cmdline.CopyrightYears = "2018-2020"
 	cmdline.License = "Mozilla Public License Version 2.0"
 	cl := cmdline.New(true)
 	cl.UsageSuffix = "dirs..."
@@ -71,16 +71,16 @@ func main() {
 	set := make(map[string]int)
 	order := 0
 	for _, path := range paths {
-		real, err := realpath.Realpath(path)
+		actual, err := realpath.Realpath(path)
 		if err != nil {
 			fmt.Printf(i18n.Text("Unable to determine real path for '%s'.\n"), path)
 			atexit.Exit(1)
 		}
-		if _, exists := set[real]; !exists {
+		if _, exists := set[actual]; !exists {
 			add := true
 			for one := range set {
-				prefixed := strings.HasPrefix(rel(one, real), "..")
-				if prefixed != strings.HasPrefix(rel(real, one), "..") {
+				prefixed := strings.HasPrefix(rel(one, actual), "..")
+				if prefixed != strings.HasPrefix(rel(actual, one), "..") {
 					if prefixed {
 						delete(set, one)
 					} else {
@@ -90,11 +90,11 @@ func main() {
 				}
 			}
 			if add {
-				set[real] = order
+				set[actual] = order
 				order++
 			}
 		}
-		removeOnlyFromLastRoot = real
+		removeOnlyFromLastRoot = actual
 	}
 
 	// Setup progress monitoring
