@@ -43,9 +43,9 @@ var (
 
 func main() {
 	cmdline.AppName = "Find Duplicates"
-	cmdline.AppVersion = "1.0.1"
+	cmdline.AppVersion = "1.0.2"
 	cmdline.CopyrightHolder = "Richard Wilkes"
-	cmdline.CopyrightYears = "2018-2020"
+	cmdline.CopyrightYears = "2018-2022"
 	cmdline.License = "Mozilla Public License Version 2.0"
 	cl := cmdline.New(true)
 	cl.UsageSuffix = "dirs..."
