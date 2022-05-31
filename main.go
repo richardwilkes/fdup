@@ -43,7 +43,7 @@ var (
 
 func main() {
 	cmdline.AppName = "Find Duplicates"
-	cmdline.AppVersion = "1.0.2"
+	cmdline.AppVersion = "1.0.3"
 	cmdline.CopyrightHolder = "Richard Wilkes"
 	cmdline.CopyrightYears = "2018-2022"
 	cmdline.License = "Mozilla Public License Version 2.0"
