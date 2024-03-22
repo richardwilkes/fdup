@@ -45,15 +45,15 @@ func main() {
 	cmdline.AppName = "Find Duplicates"
 	cmdline.AppVersion = "1.0.3"
 	cmdline.CopyrightHolder = "Richard Wilkes"
-	cmdline.CopyrightYears = "2018-2022"
+	cmdline.CopyrightStartYear = "2018"
 	cmdline.License = "Mozilla Public License Version 2.0"
 	cl := cmdline.New(true)
 	cl.UsageSuffix = "dirs..."
-	cl.NewStringArrayOption(&extensions).SetName("extension").SetSingle('e').SetName("EXTENSION").SetUsage(i18n.Text("Limit processing to just files with the specified extension. May be specified more than once"))
-	cl.NewBoolOption(&hidden).SetName("hidden").SetSingle('H').SetUsage(i18n.Text("Process files and directories that start with a period. These 'hidden' files are ignored by default"))
-	cl.NewBoolOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. The first copy encountered will be preserved"))
-	cl.NewBoolOption(&removeOnlyFromLast).SetName("last").SetSingle('l').SetUsage(i18n.Text("When deleting duplicates, only delete those found within the last directory tree specified on the command line"))
-	cl.NewBoolOption(&caseSensitive).SetName("case").SetSingle('c').SetUsage(i18n.Text("Extensions are case-sensitive"))
+	cl.NewGeneralOption(&extensions).SetName("extension").SetSingle('e').SetName("EXTENSION").SetUsage(i18n.Text("Limit processing to just files with the specified extension. May be specified more than once"))
+	cl.NewGeneralOption(&hidden).SetName("hidden").SetSingle('H').SetUsage(i18n.Text("Process files and directories that start with a period. These 'hidden' files are ignored by default"))
+	cl.NewGeneralOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. The first copy encountered will be preserved"))
+	cl.NewGeneralOption(&removeOnlyFromLast).SetName("last").SetSingle('l').SetUsage(i18n.Text("When deleting duplicates, only delete those found within the last directory tree specified on the command line"))
+	cl.NewGeneralOption(&caseSensitive).SetName("case").SetSingle('c').SetUsage(i18n.Text("Extensions are case-sensitive"))
 	paths := cl.Parse(os.Args[1:])
 
 	// If no paths specified, use the current directory
@@ -256,7 +256,7 @@ func summarizeList(msgSingle, msgMultiple string, list []string) {
 	}
 }
 
-func walker(path string, info os.FileInfo, err error) error {
+func walker(path string, info os.FileInfo, _ error) error {
 	// Prune out hidden directories and files, if not asked for
 	name := info.Name()
 	if !hidden && strings.HasPrefix(name, ".") {
