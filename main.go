@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -13,12 +14,12 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/richardwilkes/toolbox/atexit"
-	"github.com/richardwilkes/toolbox/cmdline"
-	"github.com/richardwilkes/toolbox/i18n"
-	"github.com/richardwilkes/toolbox/txt"
-	"github.com/richardwilkes/toolbox/xio"
-	"github.com/richardwilkes/toolbox/xio/term"
+	"github.com/richardwilkes/toolbox/v2/i18n"
+	"github.com/richardwilkes/toolbox/v2/xflag"
+	"github.com/richardwilkes/toolbox/v2/xio"
+	"github.com/richardwilkes/toolbox/v2/xos"
+	"github.com/richardwilkes/toolbox/v2/xstrings"
+	"github.com/richardwilkes/toolbox/v2/xterm"
 	"github.com/yookoala/realpath"
 )
 
@@ -33,7 +34,6 @@ var (
 	bytesProcessed         int64
 	duplicatesFound        int32
 	duplicateBytes         int64
-	ansi                   *term.ANSI
 	lock                   sync.Mutex
 	hashes                 = make(map[[32]byte][]string)
 	removed                []string
@@ -42,39 +42,41 @@ var (
 )
 
 func main() {
-	cmdline.AppName = "Find Duplicates"
-	cmdline.AppVersion = "1.0.3"
-	cmdline.CopyrightHolder = "Richard Wilkes"
-	cmdline.CopyrightStartYear = "2018"
-	cmdline.License = "Mozilla Public License Version 2.0"
-	cl := cmdline.New(true)
-	cl.UsageSuffix = "dirs..."
-	cl.NewGeneralOption(&extensions).SetName("extension").SetSingle('e').SetName("EXTENSION").SetUsage(i18n.Text("Limit processing to just files with the specified extension. May be specified more than once"))
-	cl.NewGeneralOption(&hidden).SetName("hidden").SetSingle('H').SetUsage(i18n.Text("Process files and directories that start with a period. These 'hidden' files are ignored by default"))
-	cl.NewGeneralOption(&remove).SetName("delete").SetSingle('d').SetUsage(i18n.Text("Delete all duplicates found. The first copy encountered will be preserved"))
-	cl.NewGeneralOption(&removeOnlyFromLast).SetName("last").SetSingle('l').SetUsage(i18n.Text("When deleting duplicates, only delete those found within the last directory tree specified on the command line"))
-	cl.NewGeneralOption(&caseSensitive).SetName("case").SetSingle('c').SetUsage(i18n.Text("Extensions are case-sensitive"))
-	paths := cl.Parse(os.Args[1:])
+	xos.AppName = "Find Duplicates"
+	xos.AppVersion = "1.0.4"
+	xos.CopyrightHolder = "Richard Wilkes"
+	xos.CopyrightStartYear = "2018"
+	xos.License = "Mozilla Public License Version 2.0"
+	xflag.SetUsage(nil, "", "[dir]...")
+	extList := flag.String("ext", "",
+		i18n.Text("Limit processing to just files with these `extensions`. Separate multiple values with commas"))
+	flag.BoolVar(&hidden, "hidden", false,
+		i18n.Text("Process files and directories that start with a period. Hidden files are ignored by default"))
+	flag.BoolVar(&remove, "delete", false,
+		i18n.Text("Delete all duplicates found. The first copy encountered will be preserved"))
+	flag.BoolVar(&removeOnlyFromLast, "last", false,
+		i18n.Text("When deleting duplicates, only delete those found within the last directory tree specified on the command line"))
+	flag.BoolVar(&caseSensitive, "case", false, i18n.Text("Extensions are case-sensitive"))
+	xflag.AddVersionFlags()
+	xflag.Parse()
+	paths := flag.Args()
 
 	// If no paths specified, use the current directory
 	if len(paths) == 0 {
 		wd, err := os.Getwd()
 		if err != nil {
-			fmt.Println(i18n.Text("Unable to determine current working directory."))
-			atexit.Exit(1)
+			xos.ExitWithMsg(i18n.Text("Unable to determine current working directory."))
 		}
 		paths = append(paths, wd)
 	}
 
-	// Determine the actual root paths and prune out paths that are a subset
-	// of another
+	// Determine the actual root paths and prune out paths that are a subset of another
 	set := make(map[string]int)
 	order := 0
 	for _, path := range paths {
 		actual, err := realpath.Realpath(path)
 		if err != nil {
-			fmt.Printf(i18n.Text("Unable to determine real path for '%s'.\n"), path)
-			atexit.Exit(1)
+			xos.ExitWithMsg(fmt.Sprintf(i18n.Text("Unable to determine real path for '%s'."), path))
 		}
 		if _, exists := set[actual]; !exists {
 			add := true
@@ -98,19 +100,23 @@ func main() {
 	}
 
 	// Setup progress monitoring
-	ansi = term.NewANSI(os.Stdout)
-	ansi.Clear()
-	ansi.HideCursor()
-	atexit.Register(func() {
-		ansi.ShowCursor()
+	w := xterm.NewAnsiWriter(os.Stdout)
+	w.Clear()
+	w.HideCursor()
+	xos.RunAtExit(func() {
+		w.ShowCursor()
 	})
-	status()
+	status(w)
 	done := make(chan chan bool)
-	go progress(done)
+	go progress(w, done)
 
 	// Ensure extensions are properly formatted
 	var ext []string
-	for _, one := range extensions {
+	for _, one := range strings.Split(*extList, ",") {
+		one = strings.TrimSpace(one)
+		if one == "" {
+			continue
+		}
 		if !caseSensitive {
 			one = strings.ToLower(one)
 		}
@@ -134,20 +140,18 @@ func main() {
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].order < list[j].order })
 	for _, one := range list {
-		if err := filepath.Walk(one.path, walker); err != nil {
-			fmt.Println(err)
-			atexit.Exit(1)
-		}
+		xos.ExitIfErr(filepath.Walk(one.path, walker))
 	}
 	waitDone := make(chan bool)
 	done <- waitDone
 	<-waitDone
 
 	// Report
-	status()
+	status(w)
+	w.WriteByte('\n')
 	if remove {
-		summarizeList(i18n.Text("Removed 1 file:"), i18n.Text("Removed %s files:"), removed)
-		summarizeList(i18n.Text("Unable to remove 1 file:"), i18n.Text("Unable to remove %s files:"), unableToRemove)
+		summarizeList(w, i18n.Text("Removed"), removed)
+		summarizeList(w, i18n.Text("Unable to remove"), unableToRemove)
 	} else {
 		var dups []string
 		m := make(map[string][]string)
@@ -159,99 +163,109 @@ func main() {
 		}
 		if len(dups) > 0 {
 			for _, dup := range dups {
-				fmt.Println()
-				fmt.Println(dup)
+				w.WriteByte('\n')
+				w.WriteString(dup)
+				w.WriteByte('\n')
 				for _, one := range m[dup] {
-					fmt.Println(one)
+					w.WriteString(one)
+					w.WriteByte('\n')
 				}
 			}
 		} else {
-			fmt.Println()
-			fmt.Println(i18n.Text("No duplicates found."))
+			w.WriteByte('\n')
+			w.WriteString(i18n.Text("No duplicates found."))
+			w.WriteByte('\n')
 		}
 	}
 }
 
 func rel(base, target string) string {
 	path, err := filepath.Rel(base, target)
-	if err != nil {
-		fmt.Println(err)
-		atexit.Exit(1)
-	}
+	xos.ExitIfErr(err)
 	return path
 }
 
-func progress(done chan chan bool) {
+func progress(w *xterm.AnsiWriter, done chan chan bool) {
 	for {
 		select {
 		case response := <-done:
-			ansi.ShowCursor()
+			w.ShowCursor()
 			response <- true
 			return
 		case <-time.After(time.Second / 4):
-			status()
+			status(w)
 		}
 	}
 }
 
-func status() {
+func status(w *xterm.AnsiWriter) {
 	count := atomic.LoadInt32(&filesProcessed)
 	bytes := atomic.LoadInt64(&bytesProcessed)
-	ansi.Position(1, 1)
-	ansi.EraseLine()
-	ansi.Foreground(term.White, term.Normal)
-	fmt.Print(i18n.Text("Examined "))
-	ansi.Foreground(term.Yellow, term.Bold)
-	fmt.Print(humanize.Comma(int64(count)))
-	ansi.Foreground(term.White, term.Normal)
-	if count == 1 {
-		fmt.Print(i18n.Text(" file, containing "))
-	} else {
-		fmt.Print(i18n.Text(" files, containing "))
-	}
-	ansi.Foreground(term.Yellow, term.Bold)
-	fmt.Print(humanize.Comma(bytes))
-	ansi.Foreground(term.White, term.Normal)
-	if bytes == 1 {
-		fmt.Println(i18n.Text(" byte."))
-	} else {
-		fmt.Println(i18n.Text(" bytes."))
-	}
+	w.Position(1, 1)
+	w.EraseLine()
+	w.Reset()
+	w.WriteString(i18n.Text("Examined"))
+	writeFileCount(w, int64(count), false)
+	w.WriteByte(' ')
+	w.WriteString(i18n.Text("containing"))
+	writeByteCount(w, bytes)
+	w.WriteString(".\n")
 
 	count = atomic.LoadInt32(&duplicatesFound)
 	bytes = atomic.LoadInt64(&duplicateBytes)
-	ansi.EraseLine()
-	fmt.Print(i18n.Text("Found "))
-	ansi.Foreground(term.Yellow, term.Bold)
-	fmt.Print(humanize.Comma(int64(count)))
-	ansi.Foreground(term.White, term.Normal)
-	if count == 1 {
-		fmt.Print(i18n.Text(" duplicate file, containing "))
-	} else {
-		fmt.Print(i18n.Text(" duplicate files, containing "))
+	w.EraseLine()
+	w.WriteString(i18n.Text("Found"))
+	writeFileCount(w, int64(count), true)
+	if count > 0 {
+		w.WriteByte(' ')
+		w.WriteString(i18n.Text("containing"))
+		writeByteCount(w, bytes)
 	}
-	ansi.Foreground(term.Yellow, term.Bold)
-	fmt.Print(humanize.Comma(bytes))
-	ansi.Foreground(term.White, term.Normal)
-	if bytes == 1 {
-		fmt.Println(i18n.Text(" byte."))
+	w.WriteByte('.')
+}
+
+func writeFileCount(w *xterm.AnsiWriter, count int64, dupes bool) {
+	w.WriteByte(' ')
+	w.Bold()
+	w.Yellow()
+	w.WriteString(humanize.Comma(count))
+	w.Reset()
+	if dupes {
+		w.WriteByte(' ')
+		w.WriteString(i18n.Text("duplicate"))
+	}
+	w.WriteByte(' ')
+	if count == 1 {
+		w.WriteString(i18n.Text("file"))
 	} else {
-		fmt.Println(i18n.Text(" bytes."))
+		w.WriteString(i18n.Text("files"))
 	}
 }
 
-func summarizeList(msgSingle, msgMultiple string, list []string) {
+func writeByteCount(w *xterm.AnsiWriter, bytes int64) {
+	w.WriteByte(' ')
+	w.Bold()
+	w.Yellow()
+	w.WriteString(humanize.Comma(bytes))
+	w.Reset()
+	w.WriteByte(' ')
+	if bytes == 1 {
+		w.WriteString(i18n.Text("byte"))
+	} else {
+		w.WriteString(i18n.Text("bytes"))
+	}
+}
+
+func summarizeList(w *xterm.AnsiWriter, prefix string, list []string) {
 	if len(list) > 0 {
-		sort.Slice(list, func(i, j int) bool { return txt.NaturalLess(list[i], list[j], true) })
-		fmt.Println()
-		if len(list) > 1 {
-			fmt.Printf(msgMultiple, humanize.Comma(int64(len(list))))
-			fmt.Println()
-		} else {
-			fmt.Println(msgSingle)
-		}
+		sort.Slice(list, func(i, j int) bool { return xstrings.NaturalLess(list[i], list[j], true) })
+		w.WriteByte('\n')
+		w.WriteString(prefix)
+		writeFileCount(w, int64(len(list)), false)
+		w.WriteString(":\n")
 		for _, one := range list {
-			fmt.Println(one)
+			w.WriteString(one)
+			w.WriteByte('\n')
 		}
 	}
 }
